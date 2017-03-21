@@ -236,7 +236,18 @@ def main():
 
     if args.show_type:
         print(' '.join(sorted(groups.get(args.show_type, []))))
+    elif args.show_paths:
+        verbose_dump(by_exe, pid_paths, unit_paths)
+    else:
+        default_output(by_exe, groups)
 
+    if tracker.permission_errors:
+        sys.stdout.flush()
+        warn('There were {} permissions errors, you may get more answers if you run with more permissions.'
+             .format(tracker.permission_errors))
+
+
+def default_output(by_exe, groups):
     for group, services in sorted(groups.items()):
         print(' * ' + group)
         print('   - sudo systemctl restart ' + ' '.join(sorted(services)))
@@ -256,14 +267,15 @@ def main():
                 print('  - {}: {}'.format(whom, ' '.join(pids)))
         print()
 
-    if args.show_paths and unit_paths:
+
+def verbose_dump(by_exe, pid_paths, unit_paths):
+    if unit_paths:
         print('Units:')
         for unit, paths in sorted(unit_paths.items()):
             print(' * ' + unit)
             for path in sorted(paths):
                 print('   - ' + path)
-
-    if args.show_paths and by_exe:
+    if by_exe:
         print('Paths:')
         for exe, pids in sorted(by_exe.items()):
             print(' * ' + exe)
@@ -277,11 +289,6 @@ def main():
             print('   - paths:')
             for path in sorted(paths):
                 print('     - ' + path)
-
-    if tracker.permission_errors:
-        sys.stdout.flush()
-        warn('There were {} permissions errors, you may get more answers if you run with more permissions.'
-             .format(tracker.permission_errors))
 
 
 if '__main__' == __name__:
