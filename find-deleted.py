@@ -63,7 +63,7 @@ class Deleted:
                 if not ma:
                     warn('parse error for /proc/{}/maps: {}'.format(pid, repr(line)))
 
-                inode = ma.group(1)
+                inode = int(ma.group(1))
                 if 0 == inode:
                     continue
 
