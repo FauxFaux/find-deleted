@@ -7,10 +7,13 @@ import re
 import stat
 import subprocess
 import sys
+import typing
 
 from typing import Callable, Dict, Iterator, List, Set, Tuple
 
-Pid = int
+Pid = typing.NewType('Pid', int)
+Path = typing.NewType('Path', str)
+UnitName = typing.NewType('UnitName', str)
 
 MAP_REGEX = re.compile(r'^[\da-f]+-[\da-f]+ [r-][w-][x-][sp-] '
                        r'[\da-f]+ [\da-f]{2}:[\da-f]{2} '
@@ -23,7 +26,7 @@ def warn(msg: str):
     sys.stderr.write('warning: {}\n'.format(msg))
 
 
-def is_magic(path: str) -> bool:
+def is_magic(path: Path) -> bool:
     return (path.startswith('[')
             or path.startswith('/[')
             or path.startswith('/anon_hugepage')
@@ -34,7 +37,7 @@ def is_magic(path: str) -> bool:
             or path.startswith('/SYSV'))
 
 
-def is_tmp(path: str) -> bool:
+def is_tmp(path: Path) -> bool:
     return (path.startswith('/dev/shm/')
             or path.startswith('/tmp')
             or path.startswith('/run')
@@ -52,8 +55,8 @@ def split_every(n, iterable):
         piece = list(itertools.islice(it, n))
 
 
-def unit_names_for(pids: Iterator[Pid]) -> Dict[Pid, str]:
-    output = dict()  # type: Dict[Pid, str]
+def unit_names_for(pids: Iterator[Pid]) -> Dict[Pid, UnitName]:
+    output = dict()  # type: Dict[Pid, UnitName]
     max_pids_per_call = 4096 // 8 - 32
 
     for chunk in split_every(max_pids_per_call, pids):
@@ -64,11 +67,11 @@ def unit_names_for(pids: Iterator[Pid]) -> Dict[Pid, str]:
             if not ma:
                 continue
 
-            unit = ma.group(2)
+            unit = UnitName(ma.group(2))
             if '-' == unit:
                 continue
 
-            output[int(ma.group(1))] = unit
+            output[Pid(ma.group(1))] = unit
 
     return output
 
@@ -85,15 +88,15 @@ def load_maps(tracker: Tracker) -> Iterator[Tuple[Pid, List[str]]]:
             continue
         try:
             with open('/proc/{}/maps'.format(entry.name)) as f:
-                yield (int(entry.name), f.readlines())
+                yield (Pid(entry.name), f.readlines())
         except IOError as e:
             if e is PermissionError:
                 tracker.permission_errors += 1
             warn("reading details of pid {}: {}".format(entry.name, e))
 
 
-def pids_using_files(tracker: Tracker, pre_filter: Callable[[str], bool]) -> Dict[str, Set[Pid]]:
-    users = collections.defaultdict(set)  # type: Dict[str, Set[Pid]]
+def pids_using_files(tracker: Tracker, pre_filter: Callable[[Path], bool]) -> Dict[Path, Set[Pid]]:
+    users = collections.defaultdict(set)  # type: Dict[Path, Set[Pid]]
     for (pid, lines) in load_maps(tracker):
         for line in lines:
             ma = MAP_REGEX.match(line)
