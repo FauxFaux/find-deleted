@@ -9,7 +9,7 @@ import subprocess
 import sys
 import typing
 
-from typing import Callable, Dict, Iterator, List, Set, Tuple
+from typing import Callable, Dict, Iterator, Iterable, List, Set, Tuple
 
 Pid = typing.NewType('Pid', int)
 Path = typing.NewType('Path', str)
@@ -21,6 +21,7 @@ MAP_REGEX = re.compile(r'^[\da-f]+-[\da-f]+ [r-][w-][x-][sp-] '
 
 PS_REGEX = re.compile('^ *(\d+) (.*)')
 
+USER_ID_SERVICE = re.compile('user@\d+\.service')
 
 def warn(msg: str):
     sys.stderr.write('warning: {}\n'.format(msg))
@@ -44,6 +45,12 @@ def is_tmp(path: Path) -> bool:
             or path.startswith('/var/run'))
 
 
+def is_catchall_unit(name: UnitName) -> bool:
+    return (not name
+            or name.endswith('.scope')
+            or USER_ID_SERVICE.match(name))
+
+
 def split_every(n, iterable):
     """
     https://stackoverflow.com/questions/1915170/split-a-generator-iterable-every-n-items-in-python-splitevery
@@ -55,7 +62,7 @@ def split_every(n, iterable):
         piece = list(itertools.islice(it, n))
 
 
-def unit_names_for(pids: Iterator[Pid]) -> Dict[Pid, UnitName]:
+def unit_names_for(pids: Iterable[Pid]) -> Dict[Pid, UnitName]:
     output = dict()  # type: Dict[Pid, UnitName]
     max_pids_per_call = 4096 // 8 - 32
 
@@ -72,6 +79,17 @@ def unit_names_for(pids: Iterator[Pid]) -> Dict[Pid, UnitName]:
                 continue
 
             output[Pid(ma.group(1))] = unit
+
+    return output
+
+
+def exe_paths_for(pids: Iterable[Pid]) -> Dict[Pid, Path]:
+    output = dict()  # type: Dict[Pid, Path]
+    for pid in pids:
+        try:
+            output[pid] = os.readlink('/proc/{}/exe'.format(pid))
+        except OSError as e:
+            warn('unable to find path of {}: {}'.format(pid, e))
 
     return output
 
@@ -130,13 +148,20 @@ def pids_using_files(tracker: Tracker, pre_filter: Callable[[Path], bool]) -> Di
 def main():
     tracker = Tracker()
     data = pids_using_files(tracker, lambda path: not is_magic(path) and not is_tmp(path))
-    all_pids = (pid for pids in data.values() for pid in pids)
+    all_pids = set(pid for pids in data.values() for pid in pids)
     units = unit_names_for(all_pids)
+    exes = exe_paths_for(all_pids)
     for (path, pids) in sorted(data.items()):
         print(path + ':')
-        for unit in set(units.get(pid, '???') for pid in pids):
+        matching_units = set()
+        for pid in pids:
+            unit = units.get(pid)
+            if is_catchall_unit(unit):
+                print(' * {}: {}'.format(pid, exes.get(pid)))
+            else:
+                matching_units.add(unit)
+        for unit in sorted(matching_units):
             print(' * ' + unit)
-
 
 if '__main__' == __name__:
     main()
