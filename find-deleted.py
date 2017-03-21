@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import collections
 import itertools
 import os
@@ -85,7 +86,7 @@ def load_maps(tracker: Tracker) -> Iterator[Tuple[Pid, List[str]]]:
             with open('/proc/{}/maps'.format(entry.name)) as f:
                 yield (Pid(entry.name), f.readlines())
         except IOError as e:
-            if e is PermissionError:
+            if isinstance(e, PermissionError):
                 tracker.permission_errors += 1
             warn("reading details of pid {}: {}".format(entry.name, e))
 
@@ -115,7 +116,7 @@ def pids_using_files(tracker: Tracker, pre_filter: Callable[[Path], bool]) -> Di
             except FileNotFoundError:
                 users[path].add(pid)
             except IOError as e:
-                if e is PermissionError:
+                if isinstance(e, PermissionError):
                     tracker.permission_errors += 1
                 warn("failed to stat {} for {}: {}".format(path, pid, e))
 
@@ -161,31 +162,47 @@ def matcher(spec: Dict[str, Iterable[str]]) -> Callable[[str], bool]:
     return match
 
 
-def parse_group_services(specs: List[Dict[str, Union[dict, str]]]) -> Callable[[str], str]:
-    groups = []  # type: List[Tuple[Callable[[str], bool], str]]
+def parse_group_services(specs: List[Dict[str, Union[dict, str]]]) -> Dict[str, Callable[[str], bool]]:
+    groups = {}  # type: Dict[str, Callable[[str], bool]]
     for spec in specs:
         name = spec.pop('group')
-        ma = matcher(spec)
-        groups.append((ma, name))
+        groups[name] = matcher(spec)
 
+    return groups
+
+
+def groups_as_matcher(groups: Dict[str, Callable[[str], bool]]) -> Callable[[str], str]:
     def match(what: str) -> str:
-        for group in groups:
-            if group[0](what):
-                return group[1]
+        for (group, matcher) in groups.items():
+            if matcher(what):
+                return group
         return 'other'
 
     return match
 
 
 def main():
-    with open('deleted.yml') as f:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--show-paths', action="store_true")
+    parser.add_argument('-t', '--show-type', type=str)
+    parser.add_argument('-c', '--config', type=str)
+    args = parser.parse_args()
+
+    with open(args.config if args.config else 'deleted.yml') as f:
         spec = yaml.safe_load(f)  # type: Dict[str, Any]
+
     ignore_paths = matcher(spec.pop('ignore_paths'))
     catchall_units = matcher(spec.pop('catchall_units'))
-    group_services = parse_group_services(spec.pop('group_services'))
+    group_services_raw = parse_group_services(spec.pop('group_services'))
+    group_services = groups_as_matcher(group_services_raw)
 
     if spec:
         print('unrecognised spec keys: {}'.format(sorted(spec.keys())))
+        sys.exit(2)
+
+    if args.show_type and args.show_type not in group_services_raw:
+        print(
+            "unrecognised type: '{}', valid values are: {}".format(args.show_type, ' '.join(group_services_raw.keys())))
         sys.exit(2)
 
     tracker = Tracker()
@@ -217,6 +234,9 @@ def main():
     for unit in unit_paths.keys():
         groups[group_services(unit)].add(unit)
 
+    if args.show_type:
+        print(' '.join(sorted(groups.get(args.show_type, []))))
+
     for group, services in sorted(groups.items()):
         print(' * ' + group)
         print('   - sudo systemctl restart ' + ' '.join(sorted(services)))
@@ -225,6 +245,7 @@ def main():
         print('No units need restarting.')
 
     if by_exe:
+        print()
         print('Some processes are running outside of units, and need restarting:')
         for exe, pids in sorted(by_exe.items()):
             print(' * ' + exe)
@@ -233,18 +254,17 @@ def main():
                 by_user[user_of(pid)].add(pid)
             for whom, pids in sorted(by_user.items()):
                 print('  - {}: {}'.format(whom, ' '.join(pids)))
+        print()
 
-    print_paths = False
-
-    if print_paths and unit_paths:
-        print('These units need restarting:')
+    if args.show_paths and unit_paths:
+        print('Units:')
         for unit, paths in sorted(unit_paths.items()):
             print(' * ' + unit)
             for path in sorted(paths):
                 print('   - ' + path)
 
-    if print_paths and by_exe:
-        print('These executables have processes running outside of useful units:')
+    if args.show_paths and by_exe:
+        print('Paths:')
         for exe, pids in sorted(by_exe.items()):
             print(' * ' + exe)
             paths = set()
@@ -257,6 +277,11 @@ def main():
             print('   - paths:')
             for path in sorted(paths):
                 print('     - ' + path)
+
+    if tracker.permission_errors:
+        sys.stdout.flush()
+        warn('There were {} permissions errors, you may get more answers if you run with more permissions.'
+             .format(tracker.permission_errors))
 
 
 if '__main__' == __name__:
