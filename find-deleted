@@ -188,7 +188,14 @@ def main():
     parser.add_argument('--show-paths', action="store_true", help="dump the full debug information about all paths")
     args = parser.parse_args()
 
-    with open(args.config if args.config else 'deleted.yml') as f:
+    if args.config:
+        config = args.config
+    else:
+        config = '/etc/find-deleted/deleted.yml'
+        if not os.path.exists(config):
+            config = 'deleted.yml'
+
+    with open(config) as f:
         spec = yaml.safe_load(f)  # type: Dict[str, Any]
 
     ignore_paths = matcher(spec.pop('ignore_paths'))
