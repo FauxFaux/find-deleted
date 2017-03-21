@@ -147,21 +147,46 @@ def pids_using_files(tracker: Tracker, pre_filter: Callable[[Path], bool]) -> Di
 
 def main():
     tracker = Tracker()
-    data = pids_using_files(tracker, lambda path: not is_magic(path) and not is_tmp(path))
-    all_pids = set(pid for pids in data.values() for pid in pids)
-    units = unit_names_for(all_pids)
-    exes = exe_paths_for(all_pids)
-    for (path, pids) in sorted(data.items()):
-        print(path + ':')
-        matching_units = set()
+    path_pids = pids_using_files(tracker, lambda path: not is_magic(path) and not is_tmp(path))
+    pid_paths = collections.defaultdict(set)  # type: Dict[Pid, Set[Path]]
+    for (path, pids) in path_pids.items():
         for pid in pids:
-            unit = units.get(pid)
-            if is_catchall_unit(unit):
-                print(' * {}: {}'.format(pid, exes.get(pid)))
-            else:
-                matching_units.add(unit)
-        for unit in sorted(matching_units):
+            pid_paths[pid].add(path)
+
+    all_pids = pid_paths.keys()
+    pid_units = unit_names_for(all_pids)
+    pid_exes = exe_paths_for(all_pids)
+
+    unit_paths = collections.defaultdict(set)  # type: Dict[UnitName, Set[Path]]
+    by_exe = collections.defaultdict(set)  # type: Dict[Path, Set[Pid]]
+    for (pid, paths) in pid_paths.items():
+        unit = pid_units.get(pid)
+        if not is_catchall_unit(unit):
+            unit_paths[unit].update(paths)
+            continue
+        exe = pid_exes.get(pid)
+        if not exe:
+            warn('no unit and no exe for {}'.format(pid))
+            continue
+        by_exe[exe].add(pid)
+
+    if unit_paths:
+        print('These units need restarting:')
+        for unit, paths in sorted(unit_paths.items()):
             print(' * ' + unit)
+            for path in sorted(paths):
+                print('   - ' + path)
+
+    if by_exe:
+        print('These executables have processes running outside of useful units:')
+        for exe, pids in sorted(by_exe.items()):
+            print(' * ' + exe)
+            paths = set()
+            for pid in pids:
+                paths.update(pid_paths[pid])
+            print('   - pid{}: {}'.format('s' if 1 != len(pids) else '', ' '.join(pids)))
+            for path in sorted(paths):
+                print('   - ' + path)
 
 if '__main__' == __name__:
     main()
