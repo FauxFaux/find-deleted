@@ -125,9 +125,9 @@ def pids_using_files(tracker: Tracker, pre_filter: Callable[[Path], bool]) -> Di
 def user_of(pid: Pid) -> str:
     uid = os.stat('/proc/{}'.format(pid))[stat.ST_UID]
     try:
-        return '{} [{}]'.format(pwd.getpwuid(uid).pw_name, uid)
+        return '[{}] {}'.format(uid, pwd.getpwuid(uid).pw_name)
     except KeyError:
-        return '??? [{}]'.format(uid)
+        return '[{}] ???'.format(uid)
 
 
 def matcher(spec: Dict[str, Iterable[str]]) -> Callable[[str], bool]:
@@ -197,23 +197,6 @@ def main():
 
     all_pids = pid_paths.keys()
     pid_units = unit_names_for(all_pids)
-    groups = collections.defaultdict(set)  # type: Dict[str, Set[UnitName]]
-    non_units = False
-    for unit in set(pid_units.values()):
-        if catchall_units(unit):
-            non_units = True
-            continue
-        groups[group_services(unit)].add(unit)
-
-    for group, services in sorted(groups.items()):
-        print(' * ' + group)
-        print('   - sudo systemctl restart ' + ' '.join(sorted(services)))
-
-    if not groups:
-        print('No units need restarting.')
-
-    if non_units:
-        print('Some pids not associated with units need restarting.')
 
     pid_exes = exe_paths_for(all_pids)
 
@@ -230,14 +213,37 @@ def main():
             continue
         by_exe[exe].add(pid)
 
-    if unit_paths:
+    groups = collections.defaultdict(set)  # type: Dict[str, Set[UnitName]]
+    for unit in unit_paths.keys():
+        groups[group_services(unit)].add(unit)
+
+    for group, services in sorted(groups.items()):
+        print(' * ' + group)
+        print('   - sudo systemctl restart ' + ' '.join(sorted(services)))
+
+    if not groups:
+        print('No units need restarting.')
+
+    if by_exe:
+        print('Some processes are running outside of units, and need restarting:')
+        for exe, pids in sorted(by_exe.items()):
+            print(' * ' + exe)
+            by_user = collections.defaultdict(set)  # type: Dict[str, Set[Pid]]
+            for pid in pids:
+                by_user[user_of(pid)].add(pid)
+            for whom, pids in sorted(by_user.items()):
+                print('  - {}: {}'.format(whom, ' '.join(pids)))
+
+    print_paths = False
+
+    if print_paths and unit_paths:
         print('These units need restarting:')
         for unit, paths in sorted(unit_paths.items()):
             print(' * ' + unit)
             for path in sorted(paths):
                 print('   - ' + path)
 
-    if by_exe:
+    if print_paths and by_exe:
         print('These executables have processes running outside of useful units:')
         for exe, pids in sorted(by_exe.items()):
             print(' * ' + exe)
