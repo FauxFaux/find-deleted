@@ -183,9 +183,9 @@ def groups_as_matcher(groups: Dict[str, Callable[[str], bool]]) -> Callable[[str
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--show-paths', action="store_true")
-    parser.add_argument('-t', '--show-type', type=str)
-    parser.add_argument('-c', '--config', type=str)
+    parser.add_argument('-t', '--show-type', type=str, help="show just the units of this type that need restarting")
+    parser.add_argument('-c', '--config', type=str, help="path of config file to read")
+    parser.add_argument('--show-paths', action="store_true", help="dump the full debug information about all paths")
     args = parser.parse_args()
 
     with open(args.config if args.config else 'deleted.yml') as f:
