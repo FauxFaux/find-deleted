@@ -125,9 +125,9 @@ def pids_using_files(tracker: Tracker, pre_filter: Callable[[Path], bool]) -> Di
 def user_of(pid: Pid) -> str:
     uid = os.stat('/proc/{}'.format(pid))[stat.ST_UID]
     try:
-        return '{} - {}'.format(uid, pwd.getpwuid(uid).pw_name)
+        return '{} [{}]'.format(pwd.getpwuid(uid).pw_name, uid)
     except KeyError:
-        return '{} - ???'.format(uid)
+        return '??? [{}]'.format(uid)
 
 
 def matcher(spec: Dict[str, Iterable[str]]) -> Callable[[str], bool]:
@@ -141,6 +141,9 @@ def matcher(spec: Dict[str, Iterable[str]]) -> Callable[[str], bool]:
     regexes = [re.compile(item) for item in uncompiled_regexes]
 
     def match(what: str) -> bool:
+        if not what:
+            return False
+
         for prefix in prefixes:
             if what.startswith(prefix):
                 return True
@@ -195,12 +198,22 @@ def main():
     all_pids = pid_paths.keys()
     pid_units = unit_names_for(all_pids)
     groups = collections.defaultdict(set)  # type: Dict[str, Set[UnitName]]
+    non_units = False
     for unit in set(pid_units.values()):
+        if catchall_units(unit):
+            non_units = True
+            continue
         groups[group_services(unit)].add(unit)
 
     for group, services in sorted(groups.items()):
         print(' * ' + group)
         print('   - sudo systemctl restart ' + ' '.join(sorted(services)))
+
+    if not groups:
+        print('No units need restarting.')
+
+    if non_units:
+        print('Some pids not associated with units need restarting.')
 
     pid_exes = exe_paths_for(all_pids)
 
@@ -208,7 +221,7 @@ def main():
     by_exe = collections.defaultdict(set)  # type: Dict[Path, Set[Pid]]
     for (pid, paths) in pid_paths.items():
         unit = pid_units.get(pid)
-        if not catchall_units(unit):
+        if unit and not catchall_units(unit):
             unit_paths[unit].update(paths)
             continue
         exe = pid_exes.get(pid)
