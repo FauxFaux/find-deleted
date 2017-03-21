@@ -3,12 +3,12 @@
 import collections
 import itertools
 import os
+import pwd
 import re
 import stat
 import subprocess
 import sys
 import typing
-
 from typing import Callable, Dict, Iterator, Iterable, List, Set, Tuple
 
 Pid = typing.NewType('Pid', int)
@@ -22,6 +22,7 @@ MAP_REGEX = re.compile(r'^[\da-f]+-[\da-f]+ [r-][w-][x-][sp-] '
 PS_REGEX = re.compile('^ *(\d+) (.*)')
 
 USER_ID_SERVICE = re.compile('user@\d+\.service')
+
 
 def warn(msg: str):
     sys.stderr.write('warning: {}\n'.format(msg))
@@ -145,6 +146,14 @@ def pids_using_files(tracker: Tracker, pre_filter: Callable[[Path], bool]) -> Di
     return users
 
 
+def user_of(pid: Pid) -> str:
+    uid = os.stat('/proc/{}'.format(pid))[stat.ST_UID]
+    try:
+        return '{} - {}'.format(uid, pwd.getpwuid(uid).pw_name)
+    except KeyError:
+        return '{} - ???'.format(uid)
+
+
 def main():
     tracker = Tracker()
     path_pids = pids_using_files(tracker, lambda path: not is_magic(path) and not is_tmp(path))
@@ -184,9 +193,14 @@ def main():
             paths = set()
             for pid in pids:
                 paths.update(pid_paths[pid])
-            print('   - pid{}: {}'.format('s' if 1 != len(pids) else '', ' '.join(pids)))
+            print('   - pids:')
+            for pid in sorted(pids):
+                print('     - {} ({})'.format(pid, user_of(pid)))
+
+            print('   - paths:')
             for path in sorted(paths):
-                print('   - ' + path)
+                print('     - ' + path)
+
 
 if '__main__' == __name__:
     main()
