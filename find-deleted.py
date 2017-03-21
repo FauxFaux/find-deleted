@@ -9,7 +9,9 @@ import stat
 import subprocess
 import sys
 import typing
-from typing import Callable, Dict, Iterator, Iterable, List, Set, Tuple
+from typing import Any, Callable, Dict, Iterator, Iterable, List, Set, Tuple, Union
+
+import yaml
 
 Pid = typing.NewType('Pid', int)
 Path = typing.NewType('Path', str)
@@ -21,35 +23,9 @@ MAP_REGEX = re.compile(r'^[\da-f]+-[\da-f]+ [r-][w-][x-][sp-] '
 
 PS_REGEX = re.compile('^ *(\d+) (.*)')
 
-USER_ID_SERVICE = re.compile('user@\d+\.service')
-
 
 def warn(msg: str):
     sys.stderr.write('warning: {}\n'.format(msg))
-
-
-def is_magic(path: Path) -> bool:
-    return (path.startswith('[')
-            or path.startswith('/[')
-            or path.startswith('/anon_hugepage')
-            or path.startswith('/dev/')
-            or path.startswith('/drm')
-            or path.startswith('/memfd')
-            or path.startswith('/proc/')
-            or path.startswith('/SYSV'))
-
-
-def is_tmp(path: Path) -> bool:
-    return (path.startswith('/dev/shm/')
-            or path.startswith('/tmp')
-            or path.startswith('/run')
-            or path.startswith('/var/run'))
-
-
-def is_catchall_unit(name: UnitName) -> bool:
-    return (not name
-            or name.endswith('.scope')
-            or USER_ID_SERVICE.match(name))
 
 
 def split_every(n, iterable):
@@ -154,9 +130,63 @@ def user_of(pid: Pid) -> str:
         return '{} - ???'.format(uid)
 
 
+def matcher(spec: Dict[str, Iterable[str]]) -> Callable[[str], bool]:
+    prefixes = set(spec.pop('by_prefix', []))
+    fulls = set(spec.pop('by_full', []))
+    uncompiled_regexes = set(spec.pop('by_regex', []))
+
+    if spec:
+        raise Exception('unrecognised matcher keys: {}'.format(spec.keys()))
+
+    regexes = [re.compile(item) for item in uncompiled_regexes]
+
+    def match(what: str) -> bool:
+        for prefix in prefixes:
+            if what.startswith(prefix):
+                return True
+
+        for full in fulls:
+            if what == full:
+                return True
+
+        for regex in regexes:
+            if regex.fullmatch(what):
+                return True
+
+        return False
+
+    return match
+
+
+def parse_group_services(specs: List[Dict[str, Union[dict, str]]]) -> Callable[[str], str]:
+    groups = []  # type: List[Tuple[Callable[[str], bool], str]]
+    for spec in specs:
+        name = spec.pop('group')
+        ma = matcher(spec)
+        groups.append((ma, name))
+
+    def match(what: str) -> str:
+        for group in groups:
+            if group[0](what):
+                return group[1]
+        return 'other'
+
+    return match
+
+
 def main():
+    with open('deleted.yml') as f:
+        spec = yaml.safe_load(f)  # type: Dict[str, Any]
+    ignore_paths = matcher(spec.pop('ignore_paths'))
+    catchall_units = matcher(spec.pop('catchall_units'))
+    group_services = parse_group_services(spec.pop('group_services'))
+
+    if spec:
+        print('unrecognised spec keys: {}'.format(sorted(spec.keys())))
+        sys.exit(2)
+
     tracker = Tracker()
-    path_pids = pids_using_files(tracker, lambda path: not is_magic(path) and not is_tmp(path))
+    path_pids = pids_using_files(tracker, lambda path: not ignore_paths(path))
     pid_paths = collections.defaultdict(set)  # type: Dict[Pid, Set[Path]]
     for (path, pids) in path_pids.items():
         for pid in pids:
@@ -164,13 +194,21 @@ def main():
 
     all_pids = pid_paths.keys()
     pid_units = unit_names_for(all_pids)
+    groups = collections.defaultdict(set)  # type: Dict[str, Set[UnitName]]
+    for unit in set(pid_units.values()):
+        groups[group_services(unit)].add(unit)
+
+    for group, services in sorted(groups.items()):
+        print(' * ' + group)
+        print('   - sudo systemctl restart ' + ' '.join(sorted(services)))
+
     pid_exes = exe_paths_for(all_pids)
 
     unit_paths = collections.defaultdict(set)  # type: Dict[UnitName, Set[Path]]
     by_exe = collections.defaultdict(set)  # type: Dict[Path, Set[Pid]]
     for (pid, paths) in pid_paths.items():
         unit = pid_units.get(pid)
-        if not is_catchall_unit(unit):
+        if not catchall_units(unit):
             unit_paths[unit].update(paths)
             continue
         exe = pid_exes.get(pid)

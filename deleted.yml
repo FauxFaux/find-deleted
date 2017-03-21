@@ -1,0 +1,112 @@
+# these paths will be totally ignored for the purpose
+#  of working out if things need restarting
+ignore_paths:
+  by_prefix:
+   # special non-physical-filesystem paths:
+   - "["
+   - /[
+   - /anon_hugepage
+   - /dev/
+   - /drm
+   - /memfd
+   - /proc/
+   - /SYSV
+
+   # temporary directories:
+   - /dev/shm/
+   - /tmp/
+   - /run/
+   - /var/run/
+
+# unit names that don't actually represent anything useful,
+#  so it's better to pretend they didn't exist
+catchall_units:
+  by_regex:
+    - .*\.scope$
+    - user@\d+\.service
+
+# names by which you would like services to be known
+# anything which doesn't match is grouped into "other"
+group_services:
+  # restarting any of these should cause no observable downtime or
+  #  connection losses to any users, e.g. dns and mail will auto-retry
+  - group: safe
+    by_full:
+      - acpid.service
+      - atd.service
+      - autofs.service
+      - avahi-daemon.service
+      - bind9.service
+      - collectd.service
+      - colord.service
+      - cron.service
+      - exim4.service
+      - fail2ban.service
+      - irqbalance.service
+      - lvm2-lvmetad.service
+      - mcelog.service
+      - mdadm.service
+      - ntp.service
+      - postfix.service
+      - prometheus-node-exporter.service
+      - rsyslog.service
+      - rtkit-daemon.service
+      - smartd.service
+      - ssh.service
+      - systemd-timesyncd.service
+      - thermald.service
+      - tlsdate.service
+      - udisks2.service
+      - upower.service
+      - uuidd.service
+      - whoopsie.service
+
+  # restarting these can cause serious problems for the system;
+  # probably easier to just reboot
+  - group: scary
+    by_full:
+      - accounts-daemon.service
+      # https://github.com/systemd/systemd/issues/2748
+      - dbus.service
+      # lightdm and getty@ might log you out, which probably isn't what you want
+      - lightdm.service
+      - lxcfs.service
+      - lxc-net.service
+      - polkitd.service
+      - polkit.service
+      - systemd-logind.service
+      - systemd-journald.service
+      - systemd-udevd.service
+    by_regex:
+      - ifup@.*\.service
+      - getty@.*\.service
+
+  # services that will temporarily reject connections during a restart
+  # maybe do a rolling restart if you have multiple backends...
+  - group: blip
+    by_full:
+      - amule-daemon.service
+      - apache2.service
+      - apt-cacher-ng.service
+      - dnsmasq.service
+      - mysql.service
+      - nginx.service
+      - phabricator-aphlict-daemon.service
+      - phabricator-daemon.service
+      - prometheus-server.service
+      - smbd.service
+      - sshd-phabricator.service
+      - nmbd.service
+      - winbind.service
+    by_regex:
+      - php\d.*-fpm\.service
+      - postgresql@.*\.service
+      - tomcat\d\.service
+
+  # restarting these will drop long-lived connections, annoying users
+  - group: drop
+    by_full:
+      - bitlbee.service
+      - inetd.service
+      - rpcbind.service
+      - unrealircd.service
