@@ -55,8 +55,8 @@ class Deleted:
                     self.permission_errors += 1
                 warn("reading details of pid {}: {}".format(entry.name, e))
 
-    def pids_using_files(self) -> Dict[str, Set[int]]:
-        users = collections.defaultdict(set)  # type: Dict[str, Set[int]]
+    def pids_using_files(self) -> Dict[str, Set[Pid]]:
+        users = collections.defaultdict(set)  # type: Dict[str, Set[Pid]]
         for (pid, lines) in self.load_maps():
             for line in lines:
                 ma = MAP_REGEX.match(line)
