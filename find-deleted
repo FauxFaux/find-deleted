@@ -19,7 +19,7 @@ Path = typing.NewType('Path', str)
 UnitName = typing.NewType('UnitName', str)
 
 MAP_REGEX = re.compile(r'^[\da-f]+-[\da-f]+ [r-][w-][x-][sp-] '
-                       r'[\da-f]+ [\da-f]{2}:[\da-f]{2} '
+                       r'[\da-f]+ [\da-f]{2,4}:[\da-f]{2,4} '
                        r'(\d+) *(.+)( \(deleted\))?\n$')
 
 PS_REGEX = re.compile('^ *(\d+) (.*)')
