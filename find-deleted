@@ -98,6 +98,7 @@ def pids_using_files(tracker: Tracker, pre_filter: Callable[[Path], bool]) -> Di
             ma = MAP_REGEX.match(line)
             if not ma:
                 warn('parse error for /proc/{}/maps: {}'.format(pid, repr(line)))
+                continue
 
             inode = int(ma.group(1))
             if 0 == inode:
