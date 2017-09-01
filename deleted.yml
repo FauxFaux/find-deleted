@@ -66,6 +66,7 @@ group_services:
   - group: scary
     by_full:
       - accounts-daemon.service
+      - console-kit-daemon.service
       # https://github.com/systemd/systemd/issues/2748
       - dbus.service
       # lightdm and getty@ might log you out, which probably isn't what you want
