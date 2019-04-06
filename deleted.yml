@@ -46,6 +46,7 @@ group_services:
       - lvm2-lvmetad.service
       - mcelog.service
       - mdadm.service
+      - networkd-dispatcher.service
       - ntp.service
       - postfix.service
       - prometheus-node-exporter.service
@@ -57,9 +58,12 @@ group_services:
       - thermald.service
       - tlsdate.service
       - udisks2.service
+      - unattended-upgrades.service
       - upower.service
       - uuidd.service
       - whoopsie.service
+    by_regex:
+      - postfix@.*\.service
 
   # restarting these can cause serious problems for the system;
   # probably easier to just reboot
@@ -108,6 +112,7 @@ group_services:
   - group: drop
     by_full:
       - bitlbee.service
+      - docker.service
       - inetd.service
       - rpcbind.service
       - unrealircd.service
